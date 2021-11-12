@@ -3,6 +3,7 @@
 
 import os
 import collections
+import json
 import re
 
 import torch
@@ -18,7 +19,7 @@ from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
 
-NUM_OBJ_PERMUTATIONS = [2, 4, 8, 16, 32]
+NUM_OBJ_PERMUTATIONS = [2, 4, 9, 18, 36]
 SPATIAL_KEYWORDS = [
     "above",
     "across",
@@ -58,7 +59,7 @@ SPATIAL_KEYWORDS = [
     "up",
     "within",
 ]
-punc_pattern = re.compile(r'[^a-zA-Z0-9]')
+punc_pattern = re.compile(r'[^a-zA-Z0-9 ]')
 
 
 def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataTuple:
@@ -215,6 +216,7 @@ class VQA:
 
         differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
         spatial_differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
+        num_questions = 0
         num_spatial_questions = 0
 
         for i, datum_tuple in enumerate(loader):
@@ -232,24 +234,20 @@ class VQA:
                 if args.permute_bbox:
 
                     # Determine which questions involve spatial descriptors.
-                    # assuming label is (b,)
                     spatial_q = torch.zeros_like(label)
                     for j, question in enumerate(sent):
                         if is_spatial_question(question):
                             spatial_q[j] = 1
 
-                    num_spatial_questions += sqatial_q.sum().item()
+                    num_questions += feats.shape[0]
+                    num_spatial_questions += spatial_q.sum().item()
 
                     for num_permuted in NUM_OBJ_PERMUTATIONS:
-                        # assuming:
-                        # boxes is (b, 36, 4)
 
                         # Permute bounding boxes, making sure that we do not send any
                         # object back to its original position.
                         num_objs = boxes.shape[1]
-                        objs = torch.randperm(
-                            num_objs, device=boxes.device
-                        )
+                        objs = torch.randperm(num_objs, device=boxes.device)
                         objs = objs[:num_permuted]
                         perm = torch.randperm(num_permuted, device=boxes.device)
                         eye = torch.arange(num_permuted, device=boxes.device)
@@ -263,9 +261,9 @@ class VQA:
                         # Pass permuted inputs to model and count differences against
                         # the original predictions.
                         p_logit = self.model(feats, permuted_boxes, sent)
-                        p_score, p_label = logit.max(1)
+                        p_score, p_label = p_logit.max(1)
                         diff = (p_label != label).sum().item()
-                        s_diff = torch.logical_and(p_label != label, spatial)
+                        s_diff = torch.logical_and(p_label != label, spatial_q)
                         s_diff = s_diff.sum().item()
                         differences[num_permuted] += diff
                         spatial_differences[num_permuted] += s_diff
@@ -273,14 +271,16 @@ class VQA:
         # Store differences in model prediction from permuting a varying number of
         # bounding boxes.
         if args.permute_bbox:
-            differences = {k: v / len(loader) for k, v in differences.items()}
-            spatial_differences = {k: v / num_spatial_questions for k, v in differences.items()}
+            differences = {k: v / num_questions for k, v in differences.items()}
+            spatial_differences = {
+                k: v / num_spatial_questions for k, v in spatial_differences.items()
+            }
             total_diffs = {
                 "differences": differences,
                 "spatial_differences": spatial_differences,
             }
             with open("permutation_probe.json", "w") as probe_file:
-                json.dump(total_diffs, probe_file)
+                json.dump(total_diffs, probe_file, indent=4)
 
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
