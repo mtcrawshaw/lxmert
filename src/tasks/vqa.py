@@ -3,6 +3,7 @@
 
 import os
 import collections
+import re
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,46 @@ DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
 
 NUM_OBJ_PERMUTATIONS = [2, 4, 8, 16, 32]
+SPATIAL_KEYWORDS = [
+    "above",
+    "across",
+    "against",
+    "ahead",
+    "along",
+    "alongside",
+    "amid",
+    "among",
+    "amongst",
+    "apart",
+    "around",
+    "aside",
+    "away",
+    "behind",
+    "below",
+    "beneath",
+    "beside",
+    "between",
+    "beyond",
+    "close",
+    "down",
+    "far",
+    "inside",
+    "into",
+    "the left",
+    "left of",
+    "near",
+    "next to",
+    "onto",
+    "over",
+    "the right",
+    "right of",
+    "toward",
+    "under",
+    "underneath",
+    "up",
+    "within",
+]
+punc_pattern = re.compile(r'[^a-zA-Z0-9]')
 
 
 def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataTuple:
@@ -31,6 +72,19 @@ def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataT
     )
 
     return DataTuple(dataset=dset, loader=data_loader, evaluator=evaluator)
+
+
+def is_spatial_question(question: str) -> bool:
+    """
+    Determine whether or not `question` requires spatial reasoning. This implementation
+    is a bit naive: we just look for the presence of spatial prepositions like "above".
+    """
+    question = question.lower()
+    question = re.sub(punc_pattern, "", question)
+    for spatial_keyword in SPATIAL_KEYWORDS:
+        if spatial_keyword in question:
+            return True
+    return False
 
 
 class VQA:
@@ -160,6 +214,8 @@ class VQA:
         quesid2ans = {}
 
         differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
+        spatial_differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
+        num_spatial_questions = 0
 
         for i, datum_tuple in enumerate(loader):
             ques_id, feats, boxes, sent = datum_tuple[:4]   # Avoid seeing ground truth
@@ -174,6 +230,16 @@ class VQA:
 
                 # Run inference with permuted bounding boxes, if necessary.
                 if args.permute_bbox:
+
+                    # Determine which questions involve spatial descriptors.
+                    # assuming label is (b,)
+                    spatial_q = torch.zeros_like(label)
+                    for j, question in enumerate(sent):
+                        if is_spatial_question(question):
+                            spatial_q[j] = 1
+
+                    num_spatial_questions += sqatial_q.sum().item()
+
                     for num_permuted in NUM_OBJ_PERMUTATIONS:
                         # assuming:
                         # boxes is (b, 36, 4)
@@ -194,19 +260,27 @@ class VQA:
                         total_perm[objs] = permuted
                         permuted_boxes = boxes[:, total_perm]
 
-                        # Permute bounding boxes, pass inputs to model, and count
-                        # differences.
+                        # Pass permuted inputs to model and count differences against
+                        # the original predictions.
                         p_logit = self.model(feats, permuted_boxes, sent)
                         p_score, p_label = logit.max(1)
                         diff = (p_label != label).sum().item()
+                        s_diff = torch.logical_and(p_label != label, spatial)
+                        s_diff = s_diff.sum().item()
                         differences[num_permuted] += diff
+                        spatial_differences[num_permuted] += s_diff
 
         # Store differences in model prediction from permuting a varying number of
         # bounding boxes.
         if args.permute_bbox:
-            differences /= {k: v / len(loader) for k, v in differences.items()}
+            differences = {k: v / len(loader) for k, v in differences.items()}
+            spatial_differences = {k: v / num_spatial_questions for k, v in differences.items()}
+            total_diffs = {
+                "differences": differences,
+                "spatial_differences": spatial_differences,
+            }
             with open("permutation_probe.json", "w") as probe_file:
-                json.dump(differences, probe_file)
+                json.dump(total_diffs, probe_file)
 
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
