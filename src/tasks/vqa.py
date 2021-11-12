@@ -17,6 +17,9 @@ from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
 
+NUM_OBJ_PERMUTATIONS = [2, 4, 8, 16, 32]
+
+
 def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataTuple:
     dset = VQADataset(splits)
     tset = VQATorchDataset(dset)
@@ -155,15 +158,56 @@ class VQA:
         self.model.eval()
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
+
+        differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
+
         for i, datum_tuple in enumerate(loader):
             ques_id, feats, boxes, sent = datum_tuple[:4]   # Avoid seeing ground truth
             with torch.no_grad():
                 feats, boxes = feats.cuda(), boxes.cuda()
+
                 logit = self.model(feats, boxes, sent)
                 score, label = logit.max(1)
                 for qid, l in zip(ques_id, label.cpu().numpy()):
                     ans = dset.label2ans[l]
                     quesid2ans[qid.item()] = ans
+
+                # Run inference with permuted bounding boxes, if necessary.
+                if args.permute_bbox:
+                    for num_permuted in NUM_OBJ_PERMUTATIONS:
+                        # assuming:
+                        # boxes is (b, 36, 4)
+
+                        # Permute bounding boxes, making sure that we do not send any
+                        # object back to its original position.
+                        num_objs = boxes.shape[1]
+                        objs = torch.randperm(
+                            num_objs, device=boxes.device
+                        )
+                        objs = objs[:num_permuted]
+                        perm = torch.randperm(num_permuted, device=boxes.device)
+                        eye = torch.arange(num_permuted, device=boxes.device)
+                        while torch.any(perm == eye):
+                            perm = torch.randperm(num_permuted, device=boxes.device)
+                        permuted = objs[perm]
+                        total_perm = torch.arange(num_objs, device=boxes.device)
+                        total_perm[objs] = permuted
+                        permuted_boxes = boxes[:, total_perm]
+
+                        # Permute bounding boxes, pass inputs to model, and count
+                        # differences.
+                        p_logit = self.model(feats, permuted_boxes, sent)
+                        p_score, p_label = logit.max(1)
+                        diff = (p_label != label).sum().item()
+                        differences[num_permuted] += diff
+
+        # Store differences in model prediction from permuting a varying number of
+        # bounding boxes.
+        if args.permute_bbox:
+            differences /= {k: v / len(loader) for k, v in differences.items()}
+            with open("permutation_probe.json", "w") as probe_file:
+                json.dump(differences, probe_file)
+
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans

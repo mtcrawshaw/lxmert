@@ -89,6 +89,18 @@ def parse_args():
     parser.add_argument("--wordMaskRate", dest='word_mask_rate', default=0.15, type=float)
     parser.add_argument("--objMaskRate", dest='obj_mask_rate', default=0.15, type=float)
 
+    # Model probing.
+    paraser.add_argument(
+        "--permuteBbox",
+        dest='permute_bbox',
+        action="store_true",
+        default=False,
+        type=int,
+        help="Whether to randomly permute bounding boxes in each input image. "
+            "This is used to test the model's dependence on the spatial relationships "
+            "between bounding boxes. This permutation is only applied at test time."
+    )
+
     # Parse the arguments.
     args = parser.parse_args()
 
