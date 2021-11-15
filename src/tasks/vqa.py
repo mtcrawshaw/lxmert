@@ -4,7 +4,6 @@
 import os
 import collections
 import json
-import re
 
 import torch
 import torch.nn as nn
@@ -15,51 +14,12 @@ from param import args
 from pretrain.qa_answer_table import load_lxmert_qa
 from tasks.vqa_model import VQAModel
 from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
+from utils import is_spatial_question
 
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
 
 NUM_OBJ_PERMUTATIONS = [2, 4, 9, 18, 36]
-SPATIAL_KEYWORDS = [
-    "above",
-    "across",
-    "against",
-    "ahead",
-    "along",
-    "alongside",
-    "amid",
-    "among",
-    "amongst",
-    "apart",
-    "around",
-    "aside",
-    "away",
-    "behind",
-    "below",
-    "beneath",
-    "beside",
-    "between",
-    "beyond",
-    "close",
-    "down",
-    "far",
-    "inside",
-    "into",
-    "the left",
-    "left of",
-    "near",
-    "next to",
-    "onto",
-    "over",
-    "the right",
-    "right of",
-    "toward",
-    "under",
-    "underneath",
-    "up",
-    "within",
-]
-punc_pattern = re.compile(r'[^a-zA-Z0-9 ]')
 
 
 def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataTuple:
@@ -73,19 +33,6 @@ def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataT
     )
 
     return DataTuple(dataset=dset, loader=data_loader, evaluator=evaluator)
-
-
-def is_spatial_question(question: str) -> bool:
-    """
-    Determine whether or not `question` requires spatial reasoning. This implementation
-    is a bit naive: we just look for the presence of spatial prepositions like "above".
-    """
-    question = question.lower()
-    question = re.sub(punc_pattern, "", question)
-    for spatial_keyword in SPATIAL_KEYWORDS:
-        if spatial_keyword in question:
-            return True
-    return False
 
 
 class VQA:
@@ -289,7 +236,10 @@ class VQA:
     def evaluate(self, eval_tuple: DataTuple, dump=None):
         """Evaluate all data in data_tuple."""
         quesid2ans = self.predict(eval_tuple, dump)
-        return eval_tuple.evaluator.evaluate(quesid2ans)
+        score, sr_score = eval_tuple.evaluator.evaluate(
+            quesid2ans, spatial_reasoning=True
+        )
+        return score, sr_score
 
     @staticmethod
     def oracle_score(data_tuple):
@@ -333,12 +283,13 @@ if __name__ == "__main__":
         elif 'val' in args.test:    
             # Since part of valididation data are used in pre-training/fine-tuning,
             # only validate on the minival set.
-            result = vqa.evaluate(
+            accuracy, sr_accuracy = vqa.evaluate(
                 get_data_tuple('minival', bs=950,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'minival_predict.json')
             )
-            print(result)
+            print(f"Total accuracy: {accuracy}")
+            print(f"SR accuracy: {sr_accuracy}")
         else:
             assert False, "No such test option for %s" % args.test
     else:

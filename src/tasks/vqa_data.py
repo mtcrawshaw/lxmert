@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import Dataset
 
 from param import args
-from utils import load_obj_tsv
+from utils import load_obj_tsv, is_spatial_question
 
 # Load part of the dataset for fast checking.
 # Notice that here is the number of images instead of the number of data,
@@ -156,14 +156,33 @@ class VQAEvaluator:
     def __init__(self, dataset: VQADataset):
         self.dataset = dataset
 
-    def evaluate(self, quesid2ans: dict):
+    def evaluate(self, quesid2ans: dict, spatial_reasoning=False):
+
         score = 0.
+        sr_score = 0.
+        num_spatial_questions = 0
+
         for quesid, ans in quesid2ans.items():
             datum = self.dataset.id2datum[quesid]
             label = datum['label']
             if ans in label:
                 score += label[ans]
-        return score / len(quesid2ans)
+
+            if spatial_reasoning:
+                question = datum['sent']
+                if is_spatial_question(question):
+                    num_spatial_questions += 1
+                    if ans in label:
+                        sr_score += label[ans]
+
+        score /= len(quesid2ans)
+        if spatial_reasoning and num_spatial_questions > 0:
+            sr_score /= num_spatial_questions
+
+        if spatial_reasoning:
+            return score, sr_score
+        else:
+            return score
 
     def dump_result(self, quesid2ans: dict, path):
         """

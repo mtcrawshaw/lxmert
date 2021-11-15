@@ -5,12 +5,55 @@ import sys
 import csv
 import base64
 import time
+import re
 
 import numpy as np
+
 
 csv.field_size_limit(sys.maxsize)
 FIELDNAMES = ["img_id", "img_h", "img_w", "objects_id", "objects_conf",
               "attrs_id", "attrs_conf", "num_boxes", "boxes", "features"]
+
+SPATIAL_KEYWORDS = [
+    "above",
+    "across",
+    "against",
+    "ahead",
+    "along",
+    "alongside",
+    "amid",
+    "among",
+    "amongst",
+    "apart",
+    "around",
+    "aside",
+    "away",
+    "behind",
+    "below",
+    "beneath",
+    "beside",
+    "between",
+    "beyond",
+    "close",
+    "down",
+    "far",
+    "inside",
+    "into",
+    "the left",
+    "left of",
+    "near",
+    "next to",
+    "onto",
+    "over",
+    "the right",
+    "right of",
+    "toward",
+    "under",
+    "underneath",
+    "up",
+    "within",
+]
+punc_pattern = re.compile(r'[^a-zA-Z0-9 ]')
 
 
 def load_obj_tsv(fname, topk=None, fp16=False):
@@ -56,3 +99,15 @@ def load_obj_tsv(fname, topk=None, fp16=False):
     print("Loaded %d images in file %s in %d seconds." % (len(data), fname, elapsed_time))
     return data
 
+
+def is_spatial_question(question: str) -> bool:
+    """
+    Determine whether or not `question` requires spatial reasoning. This implementation
+    is a bit naive: we just look for the presence of spatial prepositions like "above".
+    """
+    question = question.lower()
+    question = re.sub(punc_pattern, "", question)
+    for spatial_keyword in SPATIAL_KEYWORDS:
+        if spatial_keyword in question:
+            return True
+    return False
