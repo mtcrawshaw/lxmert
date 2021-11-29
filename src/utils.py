@@ -8,6 +8,7 @@ import time
 import re
 
 import numpy as np
+import torch
 
 
 csv.field_size_limit(sys.maxsize)
@@ -52,6 +53,19 @@ SPATIAL_KEYWORDS = [
     "underneath",
     "up",
     "within",
+]
+FLIP_KEYWORDS = [
+    "below",
+    "down",
+    "the left",
+    "left of",
+    "onto",
+    "over",
+    "the right",
+    "right of",
+    "under",
+    "underneath",
+    "up",
 ]
 punc_pattern = re.compile(r'[^a-zA-Z0-9 ]')
 
@@ -111,3 +125,43 @@ def is_spatial_question(question: str) -> bool:
         if spatial_keyword in question:
             return True
     return False
+
+
+def is_flippable_question(question: str) -> bool:
+    """
+    Determine whether or not `question` is flippable, in the sense that it includes
+    horizontal or vertical spatial descriptors.
+    """
+    question = question.lower()
+    question = re.sub(punc_pattern, "", question)
+    for flip_keyword in FLIP_KEYWORDS:
+        if flip_keyword in question:
+            return True
+    return False
+
+
+def flip_boxes(boxes: torch.Tensor, flipped_axes: str) -> torch.Tensor:
+    """
+    Given a batch of bounding boxes, flip the coordinates of each bounding box according
+    to `flipped_axes`. Note that we are assuming that `boxes` has shape `(batch_size,
+    num_boxes, 4)` and that each bounding box is of the form `(left, top, right,
+    bottom)`.
+    """
+    assert flipped_axes in ["x", "y", "xy"]
+
+    flipped_boxes = torch.zeros_like(boxes)
+    if flipped_axes == "x":
+        flipped_boxes[:, :, 0] = 1.0 - boxes[:, :, 2]
+        flipped_boxes[:, :, 2] = 1.0 - boxes[:, :, 0]
+    elif flipped_axes == "y":
+        flipped_boxes[:, :, 1] = 1.0 - boxes[:, :, 3]
+        flipped_boxes[:, :, 3] = 1.0 - boxes[:, :, 1]
+    elif flipped_axes == "xy":
+        flipped_boxes[:, :, 0] = 1.0 - boxes[:, :, 2]
+        flipped_boxes[:, :, 1] = 1.0 - boxes[:, :, 3]
+        flipped_boxes[:, :, 2] = 1.0 - boxes[:, :, 0]
+        flipped_boxes[:, :, 3] = 1.0 - boxes[:, :, 1]
+    else:
+        raise NotImplementedError
+
+    return flipped_boxes

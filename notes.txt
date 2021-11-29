@@ -13,12 +13,19 @@ Tasks:
     Permute bounding boxes and monitor results
 --> Flip x-coords or y-coords of bounding boxes and monitor results
 
+Current task:
+    Monitor differences in prediction from flipping coordinates
+--> Compute accuracy of model on flipped answers
+
 
 ----------------------------------------------------------------------------------------
 
 
 Results
 
+
+Changes in prediction from permuting bounding boxes. Here a question is considered
+spatial if it contains any of the elements of SPATIAL_KEYWORDS.
 
 Total accuracy: 0.700892513656973
 Non SR accuracy: 0.7067217813966796
@@ -28,7 +35,6 @@ Total questions: 25994
 Non-spatial questions: 24071
 Spatial questions: 1923
 
-Changes in prediction from permuting bounding boxes:
 {
     "differences": {
         "2": 0.032930676309917674,
@@ -43,5 +49,36 @@ Changes in prediction from permuting bounding boxes:
         "9": 0.09568382735309412,
         "18": 0.18512740509620385,
         "36": 0.3712948517940718
+    }
+}
+
+
+Changes in prediction from flipping x and/or y coordinate of bounding boxes. Here a
+question is considered spatial if it contains any of the elements of FLIP_KEYWORDS.
+
+Total accuracy: 0.700892513656973
+Non SR accuracy: 0.7042046138415017
+SR accuracy: 0.6236669784845644
+
+Total questions: 25994
+Non-spatial questions: 24925
+Spatial questions: 1069
+
+Changes in prediction from flipping bounding boxes:
+{
+    "differences": {
+        "x": 0.3919750711702701,
+        "y": 0.4750326998538124,
+        "xy": 0.22893744710317765
+    },
+    "non_spatial_differences": {
+        "x": 0.3886459378134403,
+        "y": 0.47325977933801405,
+        "xy": 0.22411233701103309
+    },
+    "spatial_differences": {
+        "x": 0.4695977549111319,
+        "y": 0.5163704396632367,
+        "xy": 0.3414405986903648
     }
 }

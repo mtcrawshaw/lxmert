@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import Dataset
 
 from param import args
-from utils import load_obj_tsv, is_spatial_question
+from utils import load_obj_tsv, is_spatial_question, is_flippable_question
 
 # Load part of the dataset for fast checking.
 # Notice that here is the number of images instead of the number of data,
@@ -156,12 +156,19 @@ class VQAEvaluator:
     def __init__(self, dataset: VQADataset):
         self.dataset = dataset
 
-    def evaluate(self, quesid2ans: dict, spatial_reasoning=False):
+    def evaluate(self, quesid2ans: dict, probe=None):
 
         score = 0.
         non_sr_score = 0.
         sr_score = 0.
         num_spatial_questions = 0
+        if probe is not None:
+            if probe == "permute":
+                spatial_filter = is_spatial_question
+            elif probe == "flip":
+                spatial_filter = is_flippable_question
+            else:
+                raise NotImplementedError
 
         for quesid, ans in quesid2ans.items():
             datum = self.dataset.id2datum[quesid]
@@ -170,9 +177,9 @@ class VQAEvaluator:
             if ans in label:
                 score += label[ans]
 
-            if spatial_reasoning:
+            if probe is not None:
                 question = datum['sent']
-                if is_spatial_question(question):
+                if spatial_filter(question):
                     num_spatial_questions += 1
                     if correct:
                         sr_score += label[ans]
@@ -181,10 +188,10 @@ class VQAEvaluator:
                         non_sr_score += label[ans]
 
         num_questions = len(quesid2ans)
-        num_non_spatial_questions = num_questions - num_spatial_questions
 
         score /= num_questions
-        if spatial_reasoning:
+        if probe is not None:
+            num_non_spatial_questions = num_questions - num_spatial_questions
             if num_non_spatial_questions > 0:
                 non_sr_score /= num_non_spatial_questions
             if num_spatial_questions > 0:

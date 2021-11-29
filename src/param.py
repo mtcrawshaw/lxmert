@@ -8,6 +8,9 @@ import numpy as np
 import torch
 
 
+PROBES = ["permute", "flip"]
+
+
 def get_optimizer(optim):
     # Bind the optimizer
     if optim == 'rms':
@@ -91,22 +94,10 @@ def parse_args():
 
     # Model probing.
     parser.add_argument(
-        "--spatialReasoning",
-        dest="spatial_reasoning",
-        action="store_true",
-        default=False,
-        help="Whether to separately compute model performance on subset of spatial "
-            "questions, that is, questions that involve spatial phrases such as \"to "
-            "the left\"."
-    )
-    parser.add_argument(
-        "--permuteBbox",
-        dest='permute_bbox',
-        action="store_true",
-        default=False,
-        help="Whether to randomly permute bounding boxes in each input image. "
-            "This is used to test the model's dependence on the spatial relationships "
-            "between bounding boxes. This permutation is only applied at test time."
+        "--probe",
+        default=None,
+        type=str,
+        help=f"Probing method. Must be one of: {PROBES}.",
     )
 
     # Parse the arguments.
@@ -119,6 +110,9 @@ def parse_args():
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
+
+    # Check for valid arguments.
+    assert args.probe is None or args.probe in PROBES
 
     return args
 

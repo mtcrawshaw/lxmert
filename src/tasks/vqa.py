@@ -14,12 +14,15 @@ from param import args
 from pretrain.qa_answer_table import load_lxmert_qa
 from tasks.vqa_model import VQAModel
 from tasks.vqa_data import VQADataset, VQATorchDataset, VQAEvaluator
-from utils import is_spatial_question
+from utils import is_spatial_question, is_flippable_question, flip_boxes
 
 DataTuple = collections.namedtuple("DataTuple", 'dataset loader evaluator')
 
 
-NUM_OBJ_PERMUTATIONS = [2, 4, 9, 18, 36]
+PROBE_PERTURBATIONS = {
+    "permute": [2, 4, 9, 18, 36],
+    "flip": ["x", "y", "xy"],
+}
 
 
 def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataTuple:
@@ -161,10 +164,14 @@ class VQA:
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
 
-        differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
-        spatial_differences = {p: 0 for p in NUM_OBJ_PERMUTATIONS}
         num_questions = 0
-        num_spatial_questions = 0
+        if args.probe is not None:
+            perturbations = PROBE_PERTURBATIONS[args.probe]
+            differences = {p: 0 for p in perturbations}
+            non_spatial_differences = {p: 0 for p in perturbations}
+            spatial_differences = {p: 0 for p in perturbations}
+            num_non_spatial_questions = 0
+            num_spatial_questions = 0
 
         for i, datum_tuple in enumerate(loader):
             ques_id, feats, boxes, sent = datum_tuple[:4]   # Avoid seeing ground truth
@@ -176,9 +183,10 @@ class VQA:
                 for qid, l in zip(ques_id, label.cpu().numpy()):
                     ans = dset.label2ans[l]
                     quesid2ans[qid.item()] = ans
+                num_questions += feats.shape[0]
 
                 # Run inference with permuted bounding boxes, if necessary.
-                if args.permute_bbox:
+                if args.probe == "permute":
 
                     # Determine which questions involve spatial descriptors.
                     spatial_q = torch.zeros_like(label)
@@ -186,10 +194,11 @@ class VQA:
                         if is_spatial_question(question):
                             spatial_q[j] = 1
 
-                    num_questions += feats.shape[0]
-                    num_spatial_questions += spatial_q.sum().item()
+                    current_spatial = spatial_q.sum().item()
+                    num_spatial_questions += current_spatial
+                    num_non_spatial_questions += len(spatial_q) - current_spatial
 
-                    for num_permuted in NUM_OBJ_PERMUTATIONS:
+                    for num_permuted in perturbations:
 
                         # Permute bounding boxes, making sure that we do not send any
                         # object back to its original position.
@@ -210,35 +219,74 @@ class VQA:
                         p_logit = self.model(feats, permuted_boxes, sent)
                         p_score, p_label = p_logit.max(1)
                         diff = (p_label != label).sum().item()
+                        n_diff = torch.logical_and(p_label != label, 1 - spatial_q)
+                        n_diff = n_diff.sum().item()
                         s_diff = torch.logical_and(p_label != label, spatial_q)
                         s_diff = s_diff.sum().item()
                         differences[num_permuted] += diff
+                        non_spatial_differences[num_permuted] += n_diff
                         spatial_differences[num_permuted] += s_diff
 
-        # Store differences in model prediction from permuting a varying number of
-        # bounding boxes.
-        if args.permute_bbox:
+                # Run inference with flipped bounding box coordinates, if necessary
+                elif args.probe == "flip":
+
+                    # Determine which questions involve horizontal or vertical
+                    # descriptors, i.e. are flippable.
+                    spatial_q = torch.zeros_like(label)
+                    for j, question in enumerate(sent):
+                        if is_flippable_question(question):
+                            spatial_q[j] = 1
+
+                    current_spatial = spatial_q.sum().item()
+                    num_spatial_questions += current_spatial
+                    num_non_spatial_questions += len(spatial_q) - current_spatial
+
+                    for flipped_axes in perturbations:
+
+                        # Flip coordinates of bounding boxes.
+                        flipped_boxes = flip_boxes(boxes, flipped_axes)
+
+                        # Pass perturbed inputs to model and count differences against
+                        # the original predictions.
+                        p_logit = self.model(feats, flipped_boxes, sent)
+                        p_score, p_label = p_logit.max(1)
+                        diff = (p_label != label).sum().item()
+                        n_diff = torch.logical_and(p_label != label, 1 - spatial_q)
+                        n_diff = n_diff.sum().item()
+                        s_diff = torch.logical_and(p_label != label, spatial_q)
+                        s_diff = s_diff.sum().item()
+                        differences[flipped_axes] += diff
+                        non_spatial_differences[flipped_axes] += n_diff
+                        spatial_differences[flipped_axes] += s_diff
+
+                elif args.probe is not None:
+                    raise NotImplementedError
+
+        # Store differences in model prediction from perturbing inputs.
+        if args.probe is not None:
             differences = {k: v / num_questions for k, v in differences.items()}
+            non_spatial_differences = {
+                k: v / num_non_spatial_questions for k, v in non_spatial_differences.items()
+            }
             spatial_differences = {
                 k: v / num_spatial_questions for k, v in spatial_differences.items()
             }
             total_diffs = {
                 "differences": differences,
+                "non_spatial_differences": non_spatial_differences,
                 "spatial_differences": spatial_differences,
             }
-            with open("permutation_probe.json", "w") as probe_file:
+            with open(f"{args.probe}_probe.json", "w") as probe_file:
                 json.dump(total_diffs, probe_file, indent=4)
 
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans
 
-    def evaluate(self, eval_tuple: DataTuple, dump=None, spatial_reasoning=False):
+    def evaluate(self, eval_tuple: DataTuple, dump=None, probe=None):
         """Evaluate all data in data_tuple."""
         quesid2ans = self.predict(eval_tuple, dump)
-        scores = eval_tuple.evaluator.evaluate(
-            quesid2ans, spatial_reasoning=spatial_reasoning
-        )
+        scores = eval_tuple.evaluator.evaluate(quesid2ans, probe=probe)
         return scores
 
     @staticmethod
@@ -287,9 +335,9 @@ if __name__ == "__main__":
                 get_data_tuple('minival', bs=950,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'minival_predict.json'),
-                spatial_reasoning=args.spatial_reasoning,
+                probe=args.probe,
             )
-            if args.spatial_reasoning:
+            if args.probe is not None:
                 accuracy, non_sr_accuracy, sr_accuracy = scores[:3]
                 num_questions, num_non_spatial_questions, num_spatial_questions = scores[3:]
                 print(f"Total accuracy: {accuracy}")
