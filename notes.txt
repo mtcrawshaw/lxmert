@@ -1,5 +1,32 @@
-Validation accuracy: 70.072%
-Validation SR accuracy: 62.793%
+
+
+Road Map
+
+
+Current goal: Probe LXMERT's visual reasoning skills on VQA by modifying spatial
+features of data (while preserving visual features) and analyzing changes in the model
+prediction.
+
+Tasks:
+    Fine-tune LXMERT on VQAv2
+    Evaluate LXMERT on VQAv2
+    Permute bounding boxes and monitor results
+--> Flip x-coords or y-coords of bounding boxes and monitor results
+
+
+----------------------------------------------------------------------------------------
+
+
+Results
+
+
+Total accuracy: 0.700892513656973
+Non SR accuracy: 0.7067217813966796
+SR accuracy: 0.627925117004678
+
+Total questions: 25994
+Non-spatial questions: 24071
+Spatial questions: 1923
 
 Changes in prediction from permuting bounding boxes:
 {

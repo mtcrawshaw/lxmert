@@ -233,13 +233,13 @@ class VQA:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans
 
-    def evaluate(self, eval_tuple: DataTuple, dump=None):
+    def evaluate(self, eval_tuple: DataTuple, dump=None, spatial_reasoning=False):
         """Evaluate all data in data_tuple."""
         quesid2ans = self.predict(eval_tuple, dump)
-        score, sr_score = eval_tuple.evaluator.evaluate(
-            quesid2ans, spatial_reasoning=True
+        scores = eval_tuple.evaluator.evaluate(
+            quesid2ans, spatial_reasoning=spatial_reasoning
         )
-        return score, sr_score
+        return scores
 
     @staticmethod
     def oracle_score(data_tuple):
@@ -283,13 +283,23 @@ if __name__ == "__main__":
         elif 'val' in args.test:    
             # Since part of valididation data are used in pre-training/fine-tuning,
             # only validate on the minival set.
-            accuracy, sr_accuracy = vqa.evaluate(
+            scores = vqa.evaluate(
                 get_data_tuple('minival', bs=950,
                                shuffle=False, drop_last=False),
-                dump=os.path.join(args.output, 'minival_predict.json')
+                dump=os.path.join(args.output, 'minival_predict.json'),
+                spatial_reasoning=args.spatial_reasoning,
             )
-            print(f"Total accuracy: {accuracy}")
-            print(f"SR accuracy: {sr_accuracy}")
+            if args.spatial_reasoning:
+                accuracy, non_sr_accuracy, sr_accuracy = scores[:3]
+                num_questions, num_non_spatial_questions, num_spatial_questions = scores[3:]
+                print(f"Total accuracy: {accuracy}")
+                print(f"Non SR accuracy: {non_sr_accuracy}")
+                print(f"SR accuracy: {sr_accuracy}")
+                print(f"\nTotal questions: {num_questions}")
+                print(f"Non-spatial questions: {num_non_spatial_questions}")
+                print(f"Spatial questions: {num_spatial_questions}")
+            else:
+                print(f"Accuracy: {scores}")
         else:
             assert False, "No such test option for %s" % args.test
     else:

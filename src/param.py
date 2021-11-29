@@ -91,6 +91,15 @@ def parse_args():
 
     # Model probing.
     parser.add_argument(
+        "--spatialReasoning",
+        dest="spatial_reasoning",
+        action="store_true",
+        default=False,
+        help="Whether to separately compute model performance on subset of spatial "
+            "questions, that is, questions that involve spatial phrases such as \"to "
+            "the left\"."
+    )
+    parser.add_argument(
         "--permuteBbox",
         dest='permute_bbox',
         action="store_true",

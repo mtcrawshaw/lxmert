@@ -159,12 +159,14 @@ class VQAEvaluator:
     def evaluate(self, quesid2ans: dict, spatial_reasoning=False):
 
         score = 0.
+        non_sr_score = 0.
         sr_score = 0.
         num_spatial_questions = 0
 
         for quesid, ans in quesid2ans.items():
             datum = self.dataset.id2datum[quesid]
             label = datum['label']
+            correct = ans in label
             if ans in label:
                 score += label[ans]
 
@@ -172,15 +174,22 @@ class VQAEvaluator:
                 question = datum['sent']
                 if is_spatial_question(question):
                     num_spatial_questions += 1
-                    if ans in label:
+                    if correct:
                         sr_score += label[ans]
+                else:
+                    if correct:
+                        non_sr_score += label[ans]
 
-        score /= len(quesid2ans)
-        if spatial_reasoning and num_spatial_questions > 0:
-            sr_score /= num_spatial_questions
+        num_questions = len(quesid2ans)
+        num_non_spatial_questions = num_questions - num_spatial_questions
 
+        score /= num_questions
         if spatial_reasoning:
-            return score, sr_score
+            if num_non_spatial_questions > 0:
+                non_sr_score /= num_non_spatial_questions
+            if num_spatial_questions > 0:
+                sr_score /= num_spatial_questions
+            return score, non_sr_score, sr_score, num_questions, num_non_spatial_questions, num_spatial_questions
         else:
             return score
 
